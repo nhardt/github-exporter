@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -39,7 +39,7 @@ func asyncHTTPGets(targets []string, token string) ([]*Response, error) {
 		select {
 		case r := <-ch:
 			if r.err != nil {
-				log.Errorf("Error scraping API, Error: %v", r.err)
+				log.Errorf("Error scraping API %s, Error: %v", r.url, r.err)
 				break
 			}
 			responses = append(responses, r)
@@ -57,10 +57,10 @@ func paginateTargets(targets []string, token string) []string {
 
 	paginated := targets
 
-	for _, url := range targets {
+	for _, urlTarget := range targets {
 
 		// make a request to the original target to get link header if it exists
-		resp, err := getHTTPResponse(url, token)
+		resp, err := getHTTPResponse(urlTarget, token)
 		if err != nil {
 			log.Errorf("Error retrieving Link headers, Error: %s", err)
 			continue
@@ -71,17 +71,20 @@ func paginateTargets(targets []string, token string) []string {
 
 			for _, link := range links {
 				if link.Rel == "last" {
-
-					subs := strings.Split(link.URL, "&page=")
-
-					lastPage, err := strconv.Atoi(subs[len(subs)-1])
+					u, err := url.Parse(link.URL)
 					if err != nil {
-						log.Errorf("Unable to convert page substring to int, Error: %s", err)
-					}
+						log.Errorf("Unable to parse %v %s", u, err)
+                                        }
+
+					q := u.Query()
+					lastPage, err := strconv.Atoi(q.Get("page"))
+					if err != nil {
+						log.Errorf("Unable to convert page substring to int, url: %v Error: %s", u, err)
+                                        }
 
 					// add all pages to the slice of targets to return
 					for page := 2; page <= lastPage; page++ {
-						pageURL := fmt.Sprintf("%s&page=%v", url, page)
+						pageURL := fmt.Sprintf("%s?page=%v", urlTarget, page)
 						paginated = append(paginated, pageURL)
 					}
 
